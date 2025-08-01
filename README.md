@@ -8,3 +8,7 @@ https://github.com/bazelbuild/examples/tree/main/frontend/react
 https://github.com/aspect-build/rules_js/blob/main/e2e/js_image_oci/
 
 Currently, the layers that include my actual code and node_modules are not in the OCI image.
+
+The frontend project can be run via cd core/data/api/frontend and npm run dev.
+This starts Vite on localhost:5173, which fetches the backend.
+For simplicity, only the root component is included, which fetches properly.
