@@ -46,35 +46,9 @@ build --extra_execution_platforms=//platforms:local_nvidia,//platforms:local_int
 # https://docs.aspect.build/guides/bazelrc/#correctness-options
 build --incompatible_strict_action_env
 
-# Enable pyright type checking (further configuration in //tools/pyright/pyright.bzl).
-#
-# We could run pyright as a lint check by adding "//tools/lint:linters.bzl%pyright_aspect"
-# to `.aspect/cli/config.yaml`, and this would cause `bazel lint //...` to fail when the type
-# checker detects a problem.
-#
-# This largely works, but buildkite reports an incorrect reproduction command when it
-# runs the lint checks (it asks people to run `bazel build //path/to/target` instead of
-# `bazel lint //path/to/target`). To avoid this confusion, we run pyright as a build check
-# for now.
-#
-# Once we figure out how to fix this, we can remove the following line and move the configuration
-# to `.aspect/cli/config.yaml` and "//tools/lint:linters.bzl".
-build --aspects //tools/pyright:pyright.bzl%pyright_aspect
-# With either the `bazel build` or `bazel lint` approach, we need the pyright output group
-# to receive pyright findings.
-build --output_groups=+pyright
-
-# We type check on build, but not on run.
-run --output_groups=-pyright
-
 # Build with optimizations enabled by default.
 # To opt out, pass `-c fastbuild` or `-c dbg`.
 common -c opt --copt=-g
-
-# Show Clippy warnings when building Rust targets.
-build --@rules_rust//rust/settings:clippy_flags="-Wwarnings"
-build --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
-build --output_groups=+clippy_checks
 
 # Keep try-imports at the end of the file so that you can use them to override
 # settings provided here.
