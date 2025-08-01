@@ -1,0 +1,265 @@
+module(
+    name = "dirt",
+)
+
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "rules_pkg", version = "1.0.1")
+bazel_dep(name = "protobuf", version = "29.3")
+
+# Needs to be at least 0.7.4 to accommodate https://github.com/aspect-build/rules_py/issues/358.
+bazel_dep(name = "aspect_rules_py", version = "0.7.4")
+
+bazel_dep(name = "rules_python", version = "1.2.0", dev_dependency = True)
+
+RULES_RUST_VERSION = "0.63.0"
+
+bazel_dep(name = "rules_rust", version = RULES_RUST_VERSION)
+bazel_dep(name = "rules_rust_prost", version = RULES_RUST_VERSION)
+
+# rules_java is needed by the @com_google_protobuf dependencies for foxglove
+bazel_dep(name = "rules_java", version = "8.6.0")
+bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
+
+PYTHON_VERSION = "3.12"
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    configure_coverage_tool = True,
+    ignore_root_user_error = True,  # TODO: should we just not run as root in the docker build image?
+    python_version = PYTHON_VERSION,
+)
+use_repo(python, "python_3_12")
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+
+# Remove a spurious __init__.py file from the databricks-connect wheel.
+pip.whl_mods(
+    hub_name = "whl_mods_hub",
+    srcs_exclude_glob = ["site-packages/databricks/__init__.py"],
+    whl_name = "databricks-connect",
+)
+use_repo(pip, "whl_mods_hub")
+pip.parse(
+    experimental_requirement_cycles = {
+        # markdown_it_py is a dependency of ray[all]. It contains a circular
+        # dependency.
+        "markdown_it_py": [
+            "markdown-it-py",
+            "mdit-py-plugins",
+        ],
+    },
+    hub_name = "pypi",
+    python_version = PYTHON_VERSION,
+    requirements_lock = "//:requirements.txt",
+    whl_modifications = {
+        "@whl_mods_hub//:databricks-connect.json": "databricks-connect",
+    },
+)
+use_repo(pip, "pypi")
+
+bazel_dep(name = "aspect_rules_js", version = "2.3.8")
+bazel_dep(name = "rules_nodejs", version = "6.3.5")
+
+node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node", dev_dependency = True)
+node.toolchain(node_version = "22.5.1")
+
+npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm", dev_dependency = True)
+npm.npm_translate_lock(
+    name = "npm",
+    npmrc = "//:.npmrc",
+    pnpm_lock = "//:pnpm-lock.yaml",
+    verify_node_modules_ignored = "//:.bazelignore",
+)
+use_repo(npm, "npm")
+
+pnpm = use_extension("@aspect_rules_js//npm:extensions.bzl", "pnpm")
+use_repo(pnpm, "pnpm")
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# TODO: multi-architecture
+# TODO: can we grab those files from @pypi//torch instead?
+http_archive(
+    name = "pytorch_deps",
+    build_file = "@//:deps/pytorch_deps.BUILD",
+    sha256 = "e0836f576e7d8cacbb5e6369fa685fd1246646c575606153114e355c06d93ef4",
+    type = "tar.gz",
+    urls = [
+        # This is a custom archive created using ./deps/torch/copy_lib.sh
+        "https://bedrock-dev-public-assets.s3.us-west-2.amazonaws.com/3faf23540b388775db621e3f9cd132b185b4a52401e57208364b42b86b3a8ecd/torch_deps_2.3.0_c12.1_p3.10_x86_64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "onnxruntime_native",
+    build_file = "@//:deps/onnxruntime.BUILD",
+    integrity = "sha256-gEYcFNNWKwImi71+l/m86rB3gJDOCg4pi7mZw4gHbZo=",
+    strip_prefix = "onnxruntime-linux-x64-gpu-1.20.0/lib",
+    type = "tar.gz",
+    urls = [
+        "https://github.com/microsoft/onnxruntime/releases/download/v1.20.0/onnxruntime-linux-x64-gpu-1.20.0.tgz",
+
+        # It's also possible to build a custom archive on the devbox, similar to
+        # the way we do it for orin below (but be sure to set the correct paths,
+        # i.e. not aarch64), but there isn't really an advantage unless we
+        # customize the build somehow.
+        # "https://bedrock-dev-public-assets.s3.us-west-2.amazonaws.com/26f2bdc8001b485aff2bfa6a67d2eda41f344316d3a55e8927dcde9101aed55b/onnxruntime_v1.19.2_linux_x86_64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "cuda_cudart",
+    build_file = "@//:deps/cuda_cudart.BUILD",
+    integrity = "sha256-LpIXlJRxKkHpupeayBkJzMvHy7raycPg/SF/1BAnDfU=",
+    strip_prefix = "cuda_cudart-linux-x86_64-12.5.82-archive",
+    type = "tar.xz",
+    urls = [
+        "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/linux-x86_64/cuda_cudart-linux-x86_64-12.5.82-archive.tar.xz",
+    ],
+)
+
+http_archive(
+    name = "cuda_cudart_jetson",
+    build_file = "@//:deps/cuda_cudart_jetson.BUILD",
+    integrity = "sha256-52IqRiYd9kJOjNiS4WMe87v66Q0KrOSmP9Nc3P+px4g=",
+    strip_prefix = "cuda_cudart-linux-aarch64-11.8.89-archive",
+    type = "tar.xz",
+    urls = [
+        "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/linux-aarch64/cuda_cudart-linux-aarch64-11.8.89-archive.tar.xz",
+    ],
+)
+
+bazel_dep(
+    name = "caseyduquettesc_rules_python_pytest",
+    version = "1.1.0",
+    repo_name = "rules_python_pytest",
+)
+bazel_dep(name = "rules_oci", version = "2.0.0-beta1")
+
+oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
+oci.pull(
+    name = "nvidia_cuda_ubuntu_jammy",
+    digest = "sha256:1e3baf68df7f8206887d2e36b37ac8ad669c847dffd11d9b8cb4173e1e1aedf2",
+    image = "docker.io/nvidia/cuda",
+    platforms = [
+        # "linux/arm64/v8",
+        "linux/amd64",
+    ],
+    tag = "12.5.1-cudnn-runtime-ubuntu22.04",
+)
+use_repo(oci, "nvidia_cuda_ubuntu_jammy", "nvidia_cuda_ubuntu_jammy_linux_amd64")
+oci.pull(
+    name = "nvidia_cuda_ubuntu_noble",
+    digest = "sha256:8aef630a54bc5c5146ae5ce68e6af5caa3df0fb690bb91544175c91f307e4356",
+    image = "docker.io/nvidia/cuda",
+    platforms = [
+        # "linux/arm64/v8",
+        "linux/amd64",
+    ],
+    tag = "12.6.3-cudnn-runtime-ubuntu24.04",
+)
+use_repo(oci, "nvidia_cuda_ubuntu_noble", "nvidia_cuda_ubuntu_noble_linux_amd64")
+oci.pull(
+    name = "ubuntu_noble",
+    digest = "sha256:80dd3c3b9c6cecb9f1667e9290b3bc61b78c2678c02cbdae5f0fea92cc6734ab",
+    image = "docker.io/library/ubuntu",
+    platforms = [
+        # "linux/arm64/v8",
+        "linux/amd64",
+    ],
+    tag = "noble",
+)
+use_repo(oci, "ubuntu_noble", "ubuntu_noble_linux_amd64")
+oci.pull(
+    name = "debian_slim",
+    digest = "sha256:36e591f228bb9b99348f584e83f16e012c33ba5cad44ef5981a1d7c0a93eca22",
+    image = "891377295341.dkr.ecr.us-west-2.amazonaws.com/dockerhub/library/debian:12-slim",
+    platforms = [
+        "linux/arm64/v8",
+        "linux/amd64",
+    ],
+    tag = "12-slim",
+)
+use_repo(oci, "debian_slim", "debian_slim_linux_amd64", "debian_slim_linux_arm64_v8")
+
+bazel_lib_toolchains = use_extension("@aspect_bazel_lib//lib:extensions.bzl", "toolchains")
+use_repo(bazel_lib_toolchains, "expand_template_toolchains")
+bazel_lib_toolchains.expand_template()
+
+register_toolchains(
+    "@expand_template_toolchains//:all",
+)
+
+use_repo(bazel_lib_toolchains, "bsd_tar_toolchains")
+use_repo(bazel_lib_toolchains, "yq_linux_amd64")
+use_repo(bazel_lib_toolchains, "yq_linux_arm64")
+
+# Generated by sim/algoryx/package_algoryx_sdk.sh
+# This is Algoryx 2.42.0.0 for Ubuntu 24.04.
+http_archive(
+    name = "algoryx_sdk",
+    build_file = "//:deps/algoryx_sdk.BUILD",
+    sha256 = "3f90d823a84b3c67a1fa83e4558ae205476473764c4eb122cd364c910f798802",
+    url = "https://bedrock-dev-public-assets.s3.us-west-2.amazonaws.com/algoryx_sdk/2025-04-14-3f90d823.tar.gz",
+)
+
+http_archive(
+    name = "awscli",
+    build_file = "@//:deps/awscli.BUILD",
+    sha256 = "4b21986cbcd1096d7c45763a57d1e18bb0976f10891a92d9147e24e0da6102c5",
+    strip_prefix = "aws/dist",
+    type = "zip",
+    url = "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.17.10.zip",
+)
+
+http_archive(
+    name = "dbx",
+    build_file = "@//:deps/dbx.BUILD",
+    sha256 = "d6c102016fb17e40419868deadeb261c971a9da6bbdf67528f11a16c7d1666fc",
+    type = "zip",
+    url = "https://github.com/databricks/cli/releases/download/v0.223.2/databricks_cli_0.223.2_linux_amd64.zip",
+)
+
+http_archive(
+    name = "pyspy",
+    build_file = "@//:deps/py_spy.BUILD",
+    sha256 = "8bf2f3702cef367a489faa45177b41a6c31b2a3e5bd78c978d44e29340152f5a",
+    strip_prefix = "py_spy-0.4.0.data",
+    type = "zip",
+    url = "https://github.com/benfred/py-spy/releases/download/v0.4.0/py_spy-0.4.0-py2.py3-none-manylinux_2_5_x86_64.manylinux1_x86_64.whl",
+)
+
+# Includes
+include("//:hardware/rcm/bsp/rcm-bsp.MODULE.bazel")
+
+include("//:hardware/rcm/kernel/rcm-kernel.MODULE.bazel")
+
+include("//:hardware/rcm/proj/proj.MODULE.bazel")
+
+include("//:hardware/mender-artifact/mender-artifact.MODULE.bazel")
+
+bazel_dep(name = "aspect_rules_lint", version = "1.0.8")
+bazel_dep(name = "zlib", version = "1.3.1.bcr.3")
+bazel_dep(name = "aspect_rules_aws", version = "0.4.0")
+bazel_dep(name = "openssl", version = "3.3.1.bcr.1")
+bazel_dep(name = "rules_go", version = "0.54.1")
+bazel_dep(name = "gazelle", version = "0.43.0")
+
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(version = "1.24.3")
+
+go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
+
+# Import dependencies from go.mod files
+go_deps.from_file(go_mod = "//data_offload/flash_rcm:go.mod")
+
+# This list is generated by gazelle
+# run tools/update_go_deps.sh after adding your go.mod above
+use_repo(
+    go_deps,
+    "com_github_aws_aws_sdk_go",
+    "com_github_inconshreveable_mousetrap",
+    "com_github_jmespath_go_jmespath",
+    "com_github_spf13_cobra",
+    "com_github_spf13_pflag",
+)

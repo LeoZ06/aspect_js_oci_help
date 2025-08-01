@@ -1,0 +1,82 @@
+# if you change the following value, you need to change
+# it in docker/docker.sh, in Makefile and in .bazelrc-docker
+startup --output_user_root=~/.bazel-output-cache/
+
+common --enable_bzlmod
+
+# Write build outputs in a platform-specific directory,
+# avoid outputs being wiped and rewritten when switching between platforms.
+common --experimental_platform_in_output_dir
+
+# Speed up all builds by not checking if external repository files have been
+# modified.
+# Docs: https://github.com/bazelbuild/bazel/blob/1af61b21df99edc2fc66939cdf14449c2661f873/src/main/java/com/google/devtools/build/lib/bazel/repository/RepositoryOptions.java#L244
+common --noexperimental_check_external_repository_files
+
+test --test_verbose_timeout_warnings
+
+# By default, show the output of tests that fail.
+test --test_output=errors
+
+build --disk_cache=~/.bazel-cache
+build --verbose_failures
+build --nolegacy_important_outputs
+build --noslim_profile
+build --experimental_profile_include_target_label
+build --experimental_profile_include_primary_output
+build --remote_timeout=600
+build --grpc_keepalive_time=30s
+
+# Execute that script before build to retrieve information about the current git
+# repo.
+build --workspace_status_command tools/workspace_status.sh
+
+# Advertise this host machine as a linux+nvidia-capable execution platform. This
+# is the case as long as devboxes have an nvidia GPU. If we start using devboxes
+# without a GPU, we can maybe add this line to /etc/bazel.bazelrc or some other
+# well-known bazelrc file so that each machine can advertise its own
+# capabilities.
+build --extra_execution_platforms=//platforms:local_nvidia,//platforms:local_integration_test
+
+# Use a static value for `PATH` and does not inherit `LD_LIBRARY_PATH`. Doesn't let environment
+# variables like `PATH` sneak into the build, which can cause massive cache misses when they change.
+# Use `--action_env=ENV_VARIABLE` if you want to inherit specific environment variables from the
+# client, but note that doing so can prevent cross-user caching if a shared cache is used.
+# Docs: https://bazel.build/reference/command-line-reference#flag--incompatible_strict_action_env
+# https://docs.aspect.build/guides/bazelrc/#correctness-options
+build --incompatible_strict_action_env
+
+# Enable pyright type checking (further configuration in //tools/pyright/pyright.bzl).
+#
+# We could run pyright as a lint check by adding "//tools/lint:linters.bzl%pyright_aspect"
+# to `.aspect/cli/config.yaml`, and this would cause `bazel lint //...` to fail when the type
+# checker detects a problem.
+#
+# This largely works, but buildkite reports an incorrect reproduction command when it
+# runs the lint checks (it asks people to run `bazel build //path/to/target` instead of
+# `bazel lint //path/to/target`). To avoid this confusion, we run pyright as a build check
+# for now.
+#
+# Once we figure out how to fix this, we can remove the following line and move the configuration
+# to `.aspect/cli/config.yaml` and "//tools/lint:linters.bzl".
+build --aspects //tools/pyright:pyright.bzl%pyright_aspect
+# With either the `bazel build` or `bazel lint` approach, we need the pyright output group
+# to receive pyright findings.
+build --output_groups=+pyright
+
+# We type check on build, but not on run.
+run --output_groups=-pyright
+
+# Build with optimizations enabled by default.
+# To opt out, pass `-c fastbuild` or `-c dbg`.
+common -c opt --copt=-g
+
+# Show Clippy warnings when building Rust targets.
+build --@rules_rust//rust/settings:clippy_flags="-Wwarnings"
+build --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
+build --output_groups=+clippy_checks
+
+# Keep try-imports at the end of the file so that you can use them to override
+# settings provided here.
+try-import %workspace%/.docker.bazelrc
+try-import %workspace%/.user.bazelrc

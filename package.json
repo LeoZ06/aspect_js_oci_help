@@ -1,0 +1,6 @@
+{
+    "name": "dirt",
+    "devDependencies": {
+        "pyright": "^1.1.400"
+    }
+}
